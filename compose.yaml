@@ -1,0 +1,107 @@
+name: seatsage
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: seatsage
+      POSTGRES_USER: seatsage
+      POSTGRES_PASSWORD: seatsage-demo
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seatsage"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.3
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 1536m
+
+  inventory:
+    build:
+      context: .
+      dockerfile: services/inventory/Dockerfile
+    environment:
+      DATABASE_URL: postgres://seatsage:seatsage-demo@postgres:5432/seatsage
+      REDIS_URL: redis://redis:6379/0
+      INVENTORY_TOKEN: ${INVENTORY_TOKEN:-local-inventory-change-me}
+      HOLD_TTL_SECONDS: ${HOLD_TTL_SECONDS:-300}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      APP_MODE: distributed
+      DATABASE_URL: postgres://seatsage:seatsage-demo@postgres:5432/seatsage
+      INVENTORY_URL: http://inventory:8081
+      INVENTORY_TOKEN: ${INVENTORY_TOKEN:-local-inventory-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:-compose-demo-session-secret}
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      HOLD_TTL_SECONDS: ${HOLD_TTL_SECONDS:-300}
+    depends_on:
+      inventory: { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports: ["127.0.0.1:8080:80"]
+    depends_on:
+      api: { condition: service_healthy }
+
+  locust:
+    image: locustio/locust:2.37.1
+    profiles: ["load"]
+    volumes:
+      - ./load:/mnt/locust
+    working_dir: /mnt/locust
+    command: -f locustfile.py --host http://web
+    ports: ["127.0.0.1:8089:8089"]
+    depends_on:
+      web: { condition: service_started }
+
+volumes:
+  postgres-data:
+  redis-data:
+  elasticsearch-data:
