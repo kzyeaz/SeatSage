@@ -1,0 +1,11 @@
+region             = "us-east-1"
+vpc_id             = "vpc-REPLACE"
+public_subnet_ids  = ["subnet-PUBLIC-A", "subnet-PUBLIC-B"]
+private_subnet_ids = ["subnet-PRIVATE-A", "subnet-PRIVATE-B"]
+allowed_cidrs      = ["YOUR_PUBLIC_IP/32"]
+domain_name       = "seatsage.example.com"
+route53_zone_id   = "ZREPLACE"
+certificate_arn  = "arn:aws:acm:us-east-1:ACCOUNT:certificate/REPLACE"
+web_image        = "ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/seatsage-web:demo"
+api_image        = "ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/seatsage-api:demo"
+inventory_image  = "ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/seatsage-inventory:demo"
